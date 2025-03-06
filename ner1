@@ -1,0 +1,98 @@
+import pandas as pd
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import BertTokenizerFast, BertForTokenClassification, Trainer, TrainingArguments
+from sklearn.model_selection import train_test_split
+import numpy as np
+
+# 🔹 Load Data
+sentences_df = pd.read_csv("C:/data/sentences.csv")  # Sentence descriptions
+tokens_df = pd.read_csv("C:/data/tokens.csv")  # Token-level annotations
+
+# 🔹 Merge sentences with tokens using sentence_id
+merged_df = tokens_df.merge(sentences_df, on="sentence_id", how="left")
+
+# 🔹 Load Tokenizer
+model_name = "bert-base-uncased"
+tokenizer = BertTokenizerFast.from_pretrained(model_name)
+
+# 🔹 Prepare Data
+sentence_grouped = merged_df.groupby("sentence_id")
+data = []
+for _, group in sentence_grouped:
+    tokens = group["token"].astype(str).tolist()
+    labels = group["tag"].fillna("O").tolist()  # Fill missing labels as 'O'
+    data.append((tokens, labels))
+
+# 🔹 Convert Labels to Numerical Format
+unique_labels = list(set(merged_df["tag"].dropna().unique()))
+label2id = {label: i for i, label in enumerate(["O"] + unique_labels)}  # 'O' for non-entities
+id2label = {i: label for label, i in label2id.items()}
+
+class NERDataset(Dataset):
+    def __init__(self, data, tokenizer, label2id, max_len=128):
+        self.data = data
+        self.tokenizer = tokenizer
+        self.label2id = label2id
+        self.max_len = max_len
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        tokens, labels = self.data[idx]
+        encoding = self.tokenizer(tokens, is_split_into_words=True, truncation=True, padding="max_length", max_length=self.max_len, return_tensors="pt")
+        
+        word_ids = encoding.word_ids()
+        label_ids = []
+        previous_word_idx = None
+        for word_idx in word_ids:
+            if word_idx is None:
+                label_ids.append(-100)  # Ignore padding tokens
+            elif word_idx != previous_word_idx:
+                label_ids.append(self.label2id.get(labels[word_idx], 0))  # Assign label or 'O'
+            else:
+                label_ids.append(-100)  # Ignore subwords
+            previous_word_idx = word_idx
+
+        encoding["labels"] = torch.tensor(label_ids)
+        return {key: val.squeeze(0) for key, val in encoding.items()}
+
+# 🔹 Split Data
+data_train, data_test = train_test_split(data, test_size=0.2, random_state=42)
+
+train_dataset = NERDataset(data_train, tokenizer, label2id)
+test_dataset = NERDataset(data_test, tokenizer, label2id)
+
+# 🔹 Load Model for Token Classification
+model = BertForTokenClassification.from_pretrained(model_name, num_labels=len(label2id))
+
+# 🔹 Training Arguments
+training_args = TrainingArguments(
+    output_dir="./ner_model",
+    evaluation_strategy="epoch",
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    num_train_epochs=3,
+    weight_decay=0.01,
+    logging_dir="./logs",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=test_dataset,
+    tokenizer=tokenizer,
+)
+
+# 🔹 Train Model
+trainer.train()
+
+# 🔹 Save Trained Model
+model.save_pretrained("C:/data/ner_model")
+tokenizer.save_pretrained("C:/data/ner_model")
+
+print("✅ NER Model Training Completed!")
