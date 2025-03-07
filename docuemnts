@@ -1,1 +1,197 @@
+Detailed NER Model Documentation
+🔹 Named Entity Recognition (NER) Pipeline using BERT
+This document provides a step-by-step guide on training, testing, and evaluating a Named Entity Recognition (NER) model using bert-base-uncased.
 
+📌 1. Overview of Named Entity Recognition (NER)
+Named Entity Recognition (NER) is a fundamental Natural Language Processing (NLP) task that identifies and classifies named entities into predefined categories such as:
+
+Person Names (e.g., "Elon Musk" → B-PER, I-PER)
+Organizations (e.g., "SpaceX" → B-ORG)
+Locations (e.g., "New York" → B-LOC)
+Dates (e.g., "2023" → B-DATE)
+We use BERT (bert-base-uncased) for token classification, which allows us to detect and classify entities in text with high accuracy.
+
+📌 2. Dataset Structure
+We have two CSV files that contain tokenized sentences and their corresponding NER labels.
+
+(A) sentences.csv
+sentence_id	description
+1	Elon Musk founded SpaceX in 2002.
+2	Apple Inc. is headquartered in California.
+(B) tokens.csv
+sentence_id	token	tag
+1	Elon	B-PER
+1	Musk	I-PER
+1	founded	O
+1	SpaceX	B-ORG
+1	in	O
+1	2002	B-DATE
+These datasets will be merged using sentence_id for training the model.
+
+📌 3. NER Model Pipeline
+The NER pipeline consists of the following steps:
+
+1️⃣ Data Preprocessing & Tokenization
+2️⃣ Model Training & Saving
+3️⃣ Prediction on New Data
+4️⃣ Evaluation: Classification Report & Confusion Matrix
+
+📌 4. Step-by-Step Implementation
+🔹 Step 1: Training the NER Model (train_ner.py)
+python
+Copy
+Edit
+import pandas as pd
+import torch
+from torch.utils.data import Dataset
+from transformers import BertTokenizerFast, BertForTokenClassification, Trainer, TrainingArguments
+from sklearn.model_selection import train_test_split
+
+# Load Dataset
+sentences_df = pd.read_csv("C:/data/sentences.csv")  # Sentence descriptions
+tokens_df = pd.read_csv("C:/data/tokens.csv")  # Token-level annotations
+
+# Merge sentences with tokens using sentence_id
+merged_df = tokens_df.merge(sentences_df, on="sentence_id", how="left")
+merged_df["tag"] = merged_df["tag"].fillna("O")  # Replace missing tags with "O"
+
+# Group tokens & labels by sentence
+sentences = merged_df.groupby("sentence_id")["token"].apply(list).tolist()
+labels = merged_df.groupby("sentence_id")["tag"].apply(list).tolist()
+
+# Train-Test Split
+train_sentences, test_sentences, train_labels, test_labels = train_test_split(sentences, labels, test_size=0.2, random_state=42)
+
+# Load Tokenizer
+model_name = "bert-base-uncased"
+tokenizer = BertTokenizerFast.from_pretrained(model_name)
+
+# Convert Labels to Numerical Format
+unique_labels = sorted(set(merged_df["tag"].dropna().unique()))
+label2id = {label: i for i, label in enumerate(["O"] + unique_labels)}
+id2label = {i: label for label, i in label2id.items()}
+
+# Tokenization & Alignment Function
+def tokenize_and_align_labels(sentences, labels):
+    tokenized_inputs = tokenizer(
+        sentences, 
+        is_split_into_words=True,
+        truncation=True,
+        padding=True,
+        return_tensors="pt"
+    )
+
+    aligned_labels = []
+    for i, sentence_labels in enumerate(labels):
+        word_ids = tokenized_inputs.word_ids(batch_index=i)
+        label_ids = [-100 if word_id is None else label2id.get(sentence_labels[word_id], 0) for word_id in word_ids]
+        aligned_labels.append(label_ids)
+
+    tokenized_inputs["labels"] = torch.tensor(aligned_labels)
+    return tokenized_inputs
+
+# Tokenize Train & Test Data
+train_encodings = tokenize_and_align_labels(train_sentences, train_labels)
+test_encodings = tokenize_and_align_labels(test_sentences, test_labels)
+
+# Dataset Class
+class NERDataset(Dataset):
+    def __init__(self, encodings):
+        self.encodings = encodings
+
+    def __len__(self):
+        return len(self.encodings["input_ids"])
+
+    def __getitem__(self, idx):
+        return {key: val[idx] for key, val in self.encodings.items()}
+
+train_dataset = NERDataset(train_encodings)
+test_dataset = NERDataset(test_encodings)
+
+# Load Model
+model = BertForTokenClassification.from_pretrained(model_name, num_labels=len(label2id))
+
+# Training Arguments
+training_args = TrainingArguments(
+    output_dir="./ner_model",
+    evaluation_strategy="epoch",
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    num_train_epochs=3,
+    weight_decay=0.01,
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=test_dataset,
+)
+
+# Train Model
+trainer.train()
+
+# Save Model
+model.save_pretrained("C:/data/ner_model")
+tokenizer.save_pretrained("C:/data/ner_model")
+
+print("✅ NER Model Training Completed!")
+✅ This script trains the model and saves it in C:/data/ner_model
+
+🔹 Step 2: Testing the Model (predict_ner.py)
+python
+Copy
+Edit
+import pandas as pd
+import torch
+import numpy as np
+from transformers import BertTokenizerFast, BertForTokenClassification
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Load Model
+model_name = "C:/data/ner_model"
+tokenizer = BertTokenizerFast.from_pretrained(model_name)
+model = BertForTokenClassification.from_pretrained(model_name)
+model.eval()
+
+# Load Test Data
+df_test = pd.read_csv("C:/data/test_tokens.csv")  # Sentence_ID, Token, Actual_Tag
+
+# Prediction Function
+def predict_ner(tokens):
+    inputs = tokenizer(tokens, is_split_into_words=True, return_tensors="pt", truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    predictions = torch.argmax(outputs.logits, dim=2)[0].tolist()
+    return [id2label.get(p, "O") for p in predictions[:len(tokens)]]
+
+# Get Predictions
+df_test["predicted_tag"] = df_test.groupby("sentence_id")["token"].apply(lambda x: predict_ner(x.tolist()))
+
+# Save Predictions
+df_test.to_csv("C:/data/final_predictions.csv", index=False)
+
+# Classification Report
+actual_labels = df_test["actual_tag"].tolist()
+predicted_labels = df_test["predicted_tag"].tolist()
+
+print("NER Model Performance:")
+print(classification_report(actual_labels, predicted_labels))
+
+# Confusion Matrix
+conf_matrix = confusion_matrix(actual_labels, predicted_labels, labels=unique_labels)
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=unique_labels, yticklabels=unique_labels)
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title("NER Confusion Matrix")
+plt.show()
+✅ This script generates classification reports & confusion matrices
+
+📌 5. Conclusion
+✔ Trained bert-base-uncased for NER
+✔ Aligned tokens & labels correctly
+✔ Saved predictions and evaluation metrics
+
+🚀 Now you're ready to explain it to your client! Let me know if you need modifications! 🔥
