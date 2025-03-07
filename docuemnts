@@ -308,3 +308,138 @@ print(classification_report(actual_labels_flat, predicted_labels_flat))
 
 🚀 Now your predictions will match actual tokens, preventing mismatch errors!
 Let me know if you need further refinements. 🔥
+
+$$$$$$$$$$$$$$$$$$$$$%%%%%%%%%%%%%%%%%%%%%%%%%%
+Final Prediction File with Actual Tags & Missing Token Handling
+✅ Ensures predicted and actual tags align correctly
+✅ Adds missing tokens with "O" (if not found in actual tags)
+✅ Saves a structured final_predictions.csv
+
+🔹 Updated Prediction Script
+python
+Copy
+Edit
+import pandas as pd
+import torch
+import numpy as np
+from transformers import BertTokenizerFast, BertForTokenClassification
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 🔹 Load Model
+model_name = "C:/data/ner_model"
+tokenizer = BertTokenizerFast.from_pretrained(model_name)
+model = BertForTokenClassification.from_pretrained(model_name)
+model.eval()
+
+# 🔹 Load Test Data
+df_test = pd.read_csv("C:/data/test_tokens.csv")  # Sentence_ID, Token, Actual_Tag
+
+# 🔹 Ensure tokens are strings
+df_test["token"] = df_test["token"].astype(str)
+
+# 🔹 Group tokens by sentence
+sentences = df_test.groupby("sentence_id")["token"].apply(list).tolist()
+actual_labels = df_test.groupby("sentence_id")["actual_tag"].apply(list).tolist()
+
+# 🔹 Label Mapping
+unique_labels = sorted(set(df_test["actual_tag"].dropna().unique()))
+label2id = {label: i for i, label in enumerate(unique_labels)}
+id2label = {i: label for label, i in label2id.items()}
+
+# 🔹 Prediction Function with Proper Alignment
+def predict_ner(sentences):
+    predictions_list = []
+
+    for sentence in sentences:
+        inputs = tokenizer(sentence, is_split_into_words=True, return_tensors="pt", truncation=True, padding=True)
+        
+        with torch.no_grad():
+            outputs = model(**inputs)
+        
+        predictions = torch.argmax(outputs.logits, dim=2)[0].tolist()
+        word_ids = inputs.word_ids(batch_index=0)  # Get word IDs from tokenized inputs
+
+        aligned_predictions = []
+        last_word_id = None
+
+        for i, word_id in enumerate(word_ids):
+            if word_id is None or word_id == last_word_id:  
+                continue  # Ignore padding and subword tokens
+            
+            aligned_predictions.append(id2label.get(predictions[i], "O"))  
+            last_word_id = word_id
+
+        # 🔹 Ensure predictions match the sentence length
+        aligned_predictions = aligned_predictions[:len(sentence)]
+        predictions_list.append(aligned_predictions)
+    
+    return predictions_list
+
+# 🔹 Get Predictions
+predicted_labels = predict_ner(sentences)
+
+# 🔹 Create Final Prediction File with Missing Token Handling
+final_tokens, final_actual_tags, final_predicted_tags = [], [], []
+
+for sent, actual, pred in zip(sentences, actual_labels, predicted_labels):
+    for i in range(len(sent)):
+        token = sent[i]
+        actual_tag = actual[i] if i < len(actual) else "O"  # If missing, assign "O"
+        predicted_tag = pred[i] if i < len(pred) else "O"  # If missing, assign "O"
+
+        final_tokens.append(token)
+        final_actual_tags.append(actual_tag)
+        final_predicted_tags.append(predicted_tag)
+
+# 🔹 Create DataFrame & Save Final Predictions
+final_df = pd.DataFrame({
+    "Token": final_tokens,
+    "Actual_Tag": final_actual_tags,
+    "Predicted_Tag": final_predicted_tags
+})
+final_df.to_csv("C:/data/final_predictions.csv", index=False)
+print("✅ Final predictions saved to 'C:/data/final_predictions.csv'")
+
+# 🔹 Compute Confusion Matrix
+actual_labels_flat = final_df["Actual_Tag"].tolist()
+predicted_labels_flat = final_df["Predicted_Tag"].tolist()
+
+conf_matrix = confusion_matrix(actual_labels_flat, predicted_labels_flat, labels=unique_labels)
+
+# 🔹 Plot Confusion Matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=unique_labels, yticklabels=unique_labels)
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title("NER Confusion Matrix")
+plt.show()
+
+# 🔹 Print Classification Report
+print("NER Model Performance:")
+print(classification_report(actual_labels_flat, predicted_labels_flat))
+📂 Final Prediction File (final_predictions.csv)
+Token	Actual_Tag	Predicted_Tag
+Elon	B-PER	B-PER
+Musk	I-PER	I-PER
+founded	O	O
+SpaceX	B-ORG	B-ORG
+in	O	O
+2002	B-DATE	B-DATE
+🚫 Missing Token	🚫 O	🚫 O
+🔹 Fix Summary
+✅ Ensures predictions match actual tokens
+✅ Handles missing tokens by assigning "O"
+✅ Saves structured final_predictions.csv with complete results
+
+🚀 Now your predictions are correctly aligned with actual tags!
+Let me know if you need further refinements! 🔥
+
+
+
+
+
+
+
+
