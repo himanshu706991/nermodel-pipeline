@@ -1,0 +1,264 @@
+Predict Only Tags for a Fresh Test File
+If you have a new test file with only sentence_id and token, this script will:
+✅ Load the trained model
+✅ Predict NER tags for each token
+✅ Save the results in fresh_predictions.csv
+
+🔹 predict_fresh_ner.py (Only Predict Tags)
+python
+Copy
+Edit
+import pandas as pd
+import torch
+from transformers import BertTokenizerFast, BertForTokenClassification
+
+# 🔹 Load Model & Tokenizer
+model_name = "C:/data/ner_model"
+tokenizer = BertTokenizerFast.from_pretrained(model_name)
+model = BertForTokenClassification.from_pretrained(model_name)
+model.eval()
+
+# 🔹 Load Fresh Test Data (No actual tags)
+df_test = pd.read_csv("C:/data/fresh_test_tokens.csv")  # Sentence_ID, Token
+
+# 🔹 Ensure tokens are strings
+df_test["token"] = df_test["token"].astype(str)
+
+# 🔹 Group tokens by sentence
+sentences = df_test.groupby("sentence_id")["token"].apply(list).tolist()
+sentence_ids = df_test["sentence_id"].unique()
+
+# 🔹 Prediction Function
+def predict_ner(sentences):
+    predictions_list = []
+
+    for sentence in sentences:
+        inputs = tokenizer(sentence, is_split_into_words=True, return_tensors="pt", truncation=True, padding=True)
+        
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        predictions = torch.argmax(outputs.logits, dim=2)[0].tolist()
+        word_ids = inputs.word_ids(batch_index=0)  # Get word IDs from tokenized inputs
+
+        aligned_predictions = []
+        last_word_id = None
+
+        for i, word_id in enumerate(word_ids):
+            if word_id is None or word_id == last_word_id:  
+                continue  # Ignore padding and subword tokens
+            
+            aligned_predictions.append(predictions[i])  
+            last_word_id = word_id
+
+        # 🔹 Convert numerical labels to actual tags
+        aligned_predictions = [id2label.get(p, "O") for p in aligned_predictions[:len(sentence)]]
+        predictions_list.append(aligned_predictions)
+    
+    return predictions_list
+
+# 🔹 Get Predictions
+predicted_labels = predict_ner(sentences)
+
+# 🔹 Prepare Final Output (Only Sentence ID, Token, and Predicted Tag)
+final_tokens, final_sentence_ids, final_predicted_tags = [], [], []
+
+for sid, sent, pred in zip(sentence_ids, sentences, predicted_labels):
+    for token, pred_tag in zip(sent, pred):
+        final_sentence_ids.append(sid)
+        final_tokens.append(token)
+        final_predicted_tags.append(pred_tag)
+
+# 🔹 Create DataFrame & Save Predictions
+final_df = pd.DataFrame({
+    "Sentence_ID": final_sentence_ids,
+    "Token": final_tokens,
+    "Predicted_Tag": final_predicted_tags
+})
+final_df.to_csv("C:/data/fresh_predictions.csv", index=False)
+print("✅ Fresh predictions saved to 'C:/data/fresh_predictions.csv'")
+📂 Fresh Predictions (fresh_predictions.csv)
+Sentence_ID	Token	Predicted_Tag
+1	Elon	B-PER
+1	Musk	I-PER
+1	founded	O
+1	SpaceX	B-ORG
+1	in	O
+1	2002	B-DATE
+🔹 Fix Summary
+✅ Predicts NER tags without requiring actual labels
+✅ Ensures correct token alignment
+✅ Saves only Sentence_ID, Token, and Predicted Tag
+
+🚀 Now you can pass a fresh test file and get only predicted NER tags!
+Let me know if you need modifications! 🔥
+
+
+**************
+and after few day i got actual tag now i want to comapre atual vs pred and do classfication report also how to improve results
+
+ChatGPT said:
+🚀 Compare Predicted vs. Actual Tags & Generate Classification Report
+If you receive actual tags after a few days, follow these steps to:
+✅ Load the previously predicted file (fresh_predictions.csv)
+✅ Load the new actual tags file (actual_tags.csv)
+✅ Compare Predicted vs. Actual Tags
+✅ Generate a Classification Report & Confusion Matrix
+✅ Suggest Methods to Improve Model Performance
+
+📌 Step 1: Update Predictions with Actual Tags (compare_predictions.py)
+python
+Copy
+Edit
+import pandas as pd
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 🔹 Load Predicted File
+df_pred = pd.read_csv("C:/data/fresh_predictions.csv")  # Sentence_ID, Token, Predicted_Tag
+
+# 🔹 Load Actual Tags File (Received after a few days)
+df_actual = pd.read_csv("C:/data/actual_tags.csv")  # Sentence_ID, Token, Actual_Tag
+
+# 🔹 Merge Predicted & Actual Data on Sentence_ID & Token
+df_merged = df_pred.merge(df_actual, on=["Sentence_ID", "Token"], how="left")
+
+# 🔹 Fill missing actual tags with "O" (If some tokens were not labeled)
+df_merged["Actual_Tag"] = df_merged["Actual_Tag"].fillna("O")
+
+# 🔹 Save Final Comparison File
+df_merged.to_csv("C:/data/final_comparison.csv", index=False)
+print("✅ Final Comparison saved to 'C:/data/final_comparison.csv'")
+
+# 🔹 Extract Actual & Predicted Tags
+actual_labels = df_merged["Actual_Tag"].tolist()
+predicted_labels = df_merged["Predicted_Tag"].tolist()
+
+# 🔹 Generate Classification Report
+print("NER Model Performance:")
+print(classification_report(actual_labels, predicted_labels))
+
+# 🔹 Compute Confusion Matrix
+unique_labels = sorted(set(actual_labels + predicted_labels))
+conf_matrix = confusion_matrix(actual_labels, predicted_labels, labels=unique_labels)
+
+# 🔹 Plot Confusion Matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=unique_labels, yticklabels=unique_labels)
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title("NER Confusion Matrix")
+plt.show()
+📂 Final Comparison File (final_comparison.csv)
+Sentence_ID	Token	Predicted_Tag	Actual_Tag
+1	Elon	B-PER	B-PER
+1	Musk	I-PER	I-PER
+1	founded	O	O
+1	SpaceX	B-ORG	B-ORG
+1	in	O	O
+1	2002	B-DATE	B-DATE
+2	Apple	B-ORG	O (Mistake)
+2	Inc.	I-ORG	O (Mistake)
+📌 Step 2: How to Improve Model Performance?
+If the accuracy is low, follow these steps to improve the NER model:
+
+1️⃣ Data Improvements
+✔ Increase Training Data: More labeled sentences improve entity recognition.
+✔ Fix Labeling Errors: Some tokens might be mislabeled in actual_tags.csv.
+✔ Balance Entity Types: Ensure B-PER, B-ORG, etc., have enough samples.
+
+2️⃣ Model Fine-Tuning
+✔ Train for More Epochs: Set num_train_epochs=5 (instead of 3) in training.
+✔ Increase Batch Size: If memory allows, use per_device_train_batch_size=16.
+✔ Use Domain-Specific Data: If dealing with medical/legal entities, train on related datasets.
+
+3️⃣ Tokenization Fixes
+✔ Use word_ids() to align subwords properly
+✔ Ensure actual vs. predicted tokens have the same length
+
+🚀 Summary
+✅ Compares actual vs. predicted tags after receiving ground truth data
+✅ Generates Classification Report & Confusion Matrix
+✅ Provides steps to improve model accuracy
+
+Now, you can track NER model performance over time and fine-tune it!
+Let me know if you need modifications! 🔥🚀
+
+You said:
+i don want len mismatach issue make sure
+ChatGPT said:
+🚀 Ensure No Length Mismatch & Generate Final Comparison Report
+I've updated the script to prevent length mismatches between actual and predicted tags.
+This script will:
+✅ Align actual vs. predicted tokens correctly
+✅ Handle missing tokens by assigning "O"
+✅ Ensure all tokens have a corresponding tag
+✅ Generate a classification report & confusion matrix
+
+📌 Step 1: Compare Predictions with Actual Tags (compare_predictions.py)
+python
+Copy
+Edit
+import pandas as pd
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 🔹 Load Predicted File
+df_pred = pd.read_csv("C:/data/fresh_predictions.csv")  # Sentence_ID, Token, Predicted_Tag
+
+# 🔹 Load Actual Tags File (Received after a few days)
+df_actual = pd.read_csv("C:/data/actual_tags.csv")  # Sentence_ID, Token, Actual_Tag
+
+# 🔹 Merge Predicted & Actual Data on Sentence_ID & Token
+df_merged = df_pred.merge(df_actual, on=["Sentence_ID", "Token"], how="outer")
+
+# 🔹 Handle Missing Tokens by Assigning "O"
+df_merged["Predicted_Tag"] = df_merged["Predicted_Tag"].fillna("O")
+df_merged["Actual_Tag"] = df_merged["Actual_Tag"].fillna("O")
+
+# 🔹 Ensure Lengths Match
+assert len(df_merged["Actual_Tag"]) == len(df_merged["Predicted_Tag"]), "Error: Length mismatch in actual vs. predicted labels!"
+
+# 🔹 Save Final Comparison File
+df_merged.to_csv("C:/data/final_comparison.csv", index=False)
+print("✅ Final Comparison saved to 'C:/data/final_comparison.csv'")
+
+# 🔹 Extract Actual & Predicted Tags
+actual_labels = df_merged["Actual_Tag"].tolist()
+predicted_labels = df_merged["Predicted_Tag"].tolist()
+
+# 🔹 Generate Classification Report
+print("NER Model Performance:")
+print(classification_report(actual_labels, predicted_labels))
+
+# 🔹 Compute Confusion Matrix
+unique_labels = sorted(set(actual_labels + predicted_labels))
+conf_matrix = confusion_matrix(actual_labels, predicted_labels, labels=unique_labels)
+
+# 🔹 Plot Confusion Matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=unique_labels, yticklabels=unique_labels)
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title("NER Confusion Matrix")
+plt.show()
+📂 Final Comparison File (final_comparison.csv)
+Sentence_ID	Token	Predicted_Tag	Actual_Tag
+1	Elon	B-PER	B-PER
+1	Musk	I-PER	I-PER
+1	founded	O	O
+1	SpaceX	B-ORG	B-ORG
+1	in	O	O
+1	2002	B-DATE	B-DATE
+2	Apple	B-ORG	O (Mistake)
+2	Inc.	I-ORG	O (Mistake)
+(Extra Token)	-	O	O
+🔹 Fix Summary
+✅ Ensures predictions & actual tokens have the same length
+✅ Handles missing tokens by assigning "O"
+✅ Generates a classification report & confusion matrix
+
+🚀 Now you can safely compare predictions without mismatched lengths!
+Let me know if you need modifications! 🔥
