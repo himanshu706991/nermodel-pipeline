@@ -202,3 +202,327 @@ final_df = pd.DataFrame({
 final_df.to_csv("C:/data/fresh_predictions.csv", index=False)
 print("✅ Predictions saved to 'C:/data/fresh_predictions.csv'")
 ✅ Now your NER model is fully integrated & ready for production! 🚀🔥
+
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+acuuracy of my model is 4%
+ChatGPT said:
+🔍 Why is the Accuracy of Your NER Model Only 4%?
+A very low accuracy (4%) usually means one or more of the following issues:
+🔴 Incorrect label mapping between your dataset, CoNLL-2003, and OntoNotes
+🔴 Token misalignment during preprocessing and tokenization
+🔴 Poor data quality (e.g., imbalanced dataset, too many "O" labels)
+🔴 Insufficient training epochs (default is 3, might need 5+)
+
+Let’s fix these issues step by step to improve accuracy! 🚀
+
+📌 Step 1: Check Label Mapping (Possible Issue #1)
+Your NER model fails if it doesn’t recognize entity labels correctly.
+
+✅ Fix: Print All Labels in Your Dataset Before Training
+Add this before training to check for label mismatches:
+
+python
+Copy
+Edit
+print("Unique Labels in Dataset:", unique_labels)
+print("Label2ID Mapping:", label2id)
+print("ID2Label Mapping:", id2label)
+✅ Make sure the labels look like:
+
+pgsql
+Copy
+Edit
+Unique Labels in Dataset: ['O', 'B-PER', 'I-PER', 'B-ORG', 'I-ORG', 'B-LOC', 'I-LOC']
+Label2ID Mapping: {'O': 0, 'B-PER': 1, 'I-PER': 2, 'B-ORG': 3, 'I-ORG': 4, 'B-LOC': 5, 'I-LOC': 6}
+🔴 If labels look wrong (e.g., numbers instead of text), fix the label2id dictionary!
+
+📌 Step 2: Fix Token Alignment (Possible Issue #2)
+NER models need proper alignment between tokens and labels.
+If subwords are not mapped correctly, it reduces accuracy.
+
+✅ Fix: Align Tokens Correctly
+Modify your tokenize_and_align_labels function:
+
+python
+Copy
+Edit
+def tokenize_and_align_labels(sentences, labels):
+    tokenized_inputs = tokenizer(
+        sentences, is_split_into_words=True, truncation=True, padding="max_length", return_tensors="pt"
+    )
+
+    aligned_labels = []
+    for i, sentence_labels in enumerate(labels):
+        word_ids = tokenized_inputs.word_ids(batch_index=i)
+        label_ids = []
+        previous_word_id = None
+
+        for word_id in word_ids:
+            if word_id is None:
+                label_ids.append(-100)  # Ignore padding
+            elif word_id != previous_word_id:
+                label_ids.append(label2id.get(sentence_labels[word_id], 0))  # Assign correct label
+            else:
+                label_ids.append(-100)  # Ignore subwords
+            previous_word_id = word_id
+
+        aligned_labels.append(label_ids)
+
+    tokenized_inputs["labels"] = torch.tensor(aligned_labels)
+    return tokenized_inputs
+✅ Now subwords won’t break label alignment!
+
+📌 Step 3: Balance Your Dataset (Possible Issue #3)
+Many NER datasets have too many "O" labels and very few entity labels.
+Your model may be predicting only "O" due to class imbalance.
+
+✅ Fix: Print Class Distribution & Balance It
+Add this before training:
+
+python
+Copy
+Edit
+import collections
+label_counts = collections.Counter([tag for sent in all_labels for tag in sent])
+print("NER Label Distribution:", label_counts)
+🔹 If "O" has 95%+ frequency, rebalance by removing some "O" tokens randomly.
+🔹 Example balanced dataset:
+
+python
+Copy
+Edit
+df_balanced = df_all_tokens[df_all_tokens["tag"] != "O"]
+df_sampled_O = df_all_tokens[df_all_tokens["tag"] == "O"].sample(frac=0.3, random_state=42)
+df_final = pd.concat([df_balanced, df_sampled_O])
+✅ Now "O" labels are less dominant, improving accuracy!
+
+📌 Step 4: Train for More Epochs (Possible Issue #4)
+NER models need 5+ epochs for good accuracy.
+Increase num_train_epochs from 3 → 5.
+
+✅ Fix: Update Training Arguments
+python
+Copy
+Edit
+training_args = TrainingArguments(
+    output_dir="./ner_model",
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    per_device_train_batch_size=16,  # Increase batch size if possible
+    per_device_eval_batch_size=16,
+    num_train_epochs=5,  # More training improves accuracy
+    weight_decay=0.01,
+    logging_dir="./logs",
+)
+✅ Now your model has more training cycles to learn better!
+
+📌 Step 5: Use a Better Pretrained Model
+Instead of bert-base-cased, try domain-specific NER models:
+
+Domain	Best Model	Hugging Face Link
+General NER	bert-large-cased-finetuned-conll03	Link
+Financial NER	yiyanghkust/finbert-pretrain	Link
+Medical NER	dmis-lab/biobert-v1.1	Link
+✅ Fix: Change Model in Your Code
+python
+Copy
+Edit
+model_name = "dbmdz/bert-large-cased-finetuned-conll03-english"  # Use a better model
+tokenizer = BertTokenizerFast.from_pretrained(model_name)
+model = BertForTokenClassification.from_pretrained(model_name, num_labels=len(label2id))
+✅ Now you start with a stronger model, boosting accuracy!
+
+🚀 Final Takeaways: How to Fix 4% Accuracy
+Step	Fix
+Check Labels	Print label2id and fix mismatches
+Fix Tokenization	Ensure subwords don’t break label alignment
+Balance Data	Reduce "O" tokens (oversampling entities)
+Increase Training	Train for 5+ epochs
+Use a Better Model	Switch to bert-large-cased-finetuned-conll03
+🚀 Now your model will have a much higher accuracy!
+Let me know if you need further debugging! 🔥🔥🔥
+
+You said:
+how many label we can have ner
+ChatGPT said:
+🚀 How Many Labels Can We Have in NER?
+NER models can theoretically handle any number of labels, but practical limitations exist based on:
+
+✅ Dataset Complexity (More labels require more training data)
+✅ Model Architecture (BERT-based models handle dozens of labels well)
+✅ Memory & Computation (Large label sets increase training time)
+
+📌 Common NER Label Schemes
+Here are typical NER label sets used in real-world applications:
+
+1️⃣ Standard NER Labels (CoNLL-2003) → 9 Labels
+Label	Meaning	Example
+B-PER	Beginning of a Person	"Elon" → B-PER
+I-PER	Inside a Person Name	"Musk" → I-PER
+B-ORG	Beginning of an Organization	"Tesla" → B-ORG
+I-ORG	Inside an Organization	"Inc." → I-ORG
+B-LOC	Beginning of a Location	"Paris" → B-LOC
+I-LOC	Inside a Location	"New York" → I-LOC
+B-MISC	Beginning of Miscellaneous	"iPhone" → B-MISC
+I-MISC	Inside a Miscellaneous	"13 Pro" → I-MISC
+O	Outside of any entity	"was founded in" → O
+📌 Used In: CoNLL-2003, News Articles
+
+2️⃣ OntoNotes 5.0 (More Labels) → 18 Labels
+Label	Meaning
+B-PERSON, I-PERSON	People Names
+B-ORG, I-ORG	Companies, Organizations
+B-GPE, I-GPE	Countries, Cities, States
+B-DATE, I-DATE	Dates, Years, Time Periods
+B-NORP, I-NORP	Nationalities, Political Groups
+B-LAW, I-LAW	Legal Documents
+B-ORDINAL, I-ORDINAL	1st, 2nd, etc.
+B-PERCENT, I-PERCENT	90%, 10%
+B-MONEY, I-MONEY	$500, 1 million USD
+O	No entity
+📌 Used In: Legal, Financial, Government Documents
+
+3️⃣ Fine-Grained Medical NER (BC5CDR, i2b2) → 50+ Labels
+Label	Meaning
+B-DISEASE, I-DISEASE	Disease Names (COVID-19, Cancer)
+B-DRUG, I-DRUG	Medications (Aspirin, Paracetamol)
+B-PROCEDURE, I-PROCEDURE	Medical Procedures
+B-BODY_PART, I-BODY_PART	Human Body Parts
+B-TEST, I-TEST	Medical Tests
+O	No entity
+📌 Used In: Clinical & Medical NER
+
+4️⃣ Custom NER Labels (Unlimited, But Practical Limit ≈ 100)
+✅ You can define your own labels, but having too many can hurt performance!
+
+Custom NER Example: E-Commerce
+Label	Meaning
+B-BRAND, I-BRAND	Nike, Adidas, Apple
+B-PRODUCT, I-PRODUCT	MacBook, iPhone
+B-CATEGORY, I-CATEGORY	Laptop, Shoes
+B-DISCOUNT, I-DISCOUNT	50% OFF, Buy 1 Get 1
+O	No entity
+📌 Used In: E-commerce, Customer Reviews
+
+📌 How Many Labels Are Too Many?
+Number of Labels	Effect
+5-15 Labels	✅ Best Performance
+15-50 Labels	⚠️ Needs lots of training data
+50+ Labels	🚨 Hard to train, needs massive dataset
+🔹 For most NER tasks, 10-20 labels is a good range.
+🔹 If you need 100+ labels, consider multi-task learning instead of NER.
+
+🚀 Summary:
+✔ NER models can handle unlimited labels, but performance drops after ~50
+✔ Use a standard label set (CoNLL-2003, OntoNotes) if possible
+✔ **For custom NER, limit labels to 10-20 unless you have massive data
+
+💡 Need help defining your label set? Let me know! 🚀🔥
+
+You said:
+give me all list
+ChatGPT said:
+🚀 Full List of NER Labels from Different Datasets
+Below is a comprehensive list of Named Entity Recognition (NER) labels from various datasets, including CoNLL-2003, OntoNotes 5.0, biomedical datasets, legal NER, and e-commerce NER.
+
+📌 1. CoNLL-2003 (Standard NER - 9 Labels)
+📌 Used In: News Articles, Wikipedia, General NLP
+
+Label	Meaning
+B-PER	Beginning of a Person Name (e.g., "Elon")
+I-PER	Inside a Person Name (e.g., "Musk")
+B-ORG	Beginning of an Organization (e.g., "Tesla")
+I-ORG	Inside an Organization (e.g., "Inc.")
+B-LOC	Beginning of a Location (e.g., "Paris")
+I-LOC	Inside a Location (e.g., "New York")
+B-MISC	Beginning of a Miscellaneous Entity (e.g., "iPhone")
+I-MISC	Inside a Miscellaneous Entity
+O	Outside of any entity
+📌 2. OntoNotes 5.0 (Advanced NER - 18 Labels)
+📌 Used In: Legal, Finance, Government Documents
+
+Label	Meaning
+B-PERSON, I-PERSON	People Names (e.g., "Joe Biden")
+B-ORG, I-ORG	Companies, Organizations (e.g., "Google")
+B-GPE, I-GPE	Countries, Cities, States (e.g., "France")
+B-DATE, I-DATE	Dates, Years, Time Periods (e.g., "March 2024")
+B-NORP, I-NORP	Nationalities, Political Groups (e.g., "American", "Democrats")
+B-LAW, I-LAW	Legal Documents (e.g., "GDPR Law")
+B-ORDINAL, I-ORDINAL	1st, 2nd, 3rd, etc.
+B-PERCENT, I-PERCENT	90%, 10%
+B-MONEY, I-MONEY	$500, 1 million USD
+B-TIME, I-TIME	Time references (e.g., "5 PM")
+B-FAC, I-FAC	Facilities (e.g., "Statue of Liberty")
+B-PRODUCT, I-PRODUCT	Product names (e.g., "iPhone 15")
+B-WORK_OF_ART, I-WORK_OF_ART	Books, Songs, Movies (e.g., "The Matrix")
+B-EVENT, I-EVENT	Named Events (e.g., "World War II")
+B-LANGUAGE, I-LANGUAGE	Human languages (e.g., "French")
+O	No entity
+📌 3. Biomedical NER (Clinical & Pharma)
+📌 Used In: Medical Records, Drug Research, Healthcare AI
+
+Label	Meaning
+B-DISEASE, I-DISEASE	Disease Names (e.g., "COVID-19", "Diabetes")
+B-DRUG, I-DRUG	Medications (e.g., "Aspirin", "Paracetamol")
+B-PROCEDURE, I-PROCEDURE	Medical Procedures (e.g., "MRI Scan")
+B-BODY_PART, I-BODY_PART	Human Body Parts (e.g., "Lungs")
+B-TEST, I-TEST	Medical Tests (e.g., "Blood Test")
+B-SYMPTOM, I-SYMPTOM	Symptoms (e.g., "Fever")
+B-DOSAGE, I-DOSAGE	Drug Dosage (e.g., "500mg")
+B-ROUTE, I-ROUTE	Drug Route (e.g., "Oral")
+B-GENE, I-GENE	Gene Names (e.g., "BRCA1")
+O	No entity
+📌 4. Financial & Banking NER
+📌 Used In: Banking Systems, Credit Risk Models, Insurance AI
+
+Label	Meaning
+B-BANK, I-BANK	Bank Names (e.g., "Goldman Sachs")
+B-STOCK, I-STOCK	Stock Market Symbols (e.g., "AAPL")
+B-CURRENCY, I-CURRENCY	Currency Symbols (e.g., "USD", "Bitcoin")
+B-FIN_TERM, I-FIN_TERM	Financial Terms (e.g., "Interest Rate")
+B-TRANSACTION, I-TRANSACTION	Banking Transactions (e.g., "Wire Transfer")
+B-CARD, I-CARD	Credit/Debit Card Types (e.g., "Visa")
+O	No entity
+📌 5. Legal & Contract NER
+📌 Used In: Contract Analysis, Regulatory Compliance
+
+Label	Meaning
+B-LAW, I-LAW	Legal Documents (e.g., "GDPR Law")
+B-CLAUSE, I-CLAUSE	Contract Clauses (e.g., "Termination Clause")
+B-JUDGE, I-JUDGE	Judge Names (e.g., "Justice Roberts")
+B-CASE, I-CASE	Legal Cases (e.g., "Brown v. Board")
+B-COURT, I-COURT	Court Names (e.g., "Supreme Court")
+B-DATE, I-DATE	Legal Dates (e.g., "January 2024")
+O	No entity
+📌 6. E-Commerce NER
+📌 Used In: Product Catalogs, Online Marketplaces, Reviews
+
+Label	Meaning
+B-BRAND, I-BRAND	Brand Names (e.g., "Nike", "Apple")
+B-PRODUCT, I-PRODUCT	Product Names (e.g., "MacBook Pro")
+B-CATEGORY, I-CATEGORY	Product Categories (e.g., "Laptop", "Shoes")
+B-DISCOUNT, I-DISCOUNT	Discounts (e.g., "50% OFF")
+B-PRICE, I-PRICE	Product Prices (e.g., "$999")
+O	No entity
+📌 7. Cybersecurity & Threat Intelligence NER
+📌 Used In: Fraud Detection, Cybersecurity Threat Reports
+
+Label	Meaning
+B-MALWARE, I-MALWARE	Malware Names (e.g., "Trojan", "Ransomware")
+B-IP, I-IP	IP Addresses (e.g., "192.168.1.1")
+B-DOMAIN, I-DOMAIN	Website Domains (e.g., "example.com")
+B-THREAT, I-THREAT	Cyber Threats (e.g., "Phishing")
+O	No entity
+🚀 How Many Labels Are Practical?
+Number of Labels	Effect
+5-15 Labels	✅ Best Performance
+15-50 Labels	⚠️ Requires a Large Dataset
+50+ Labels	🚨 Hard to Train, Needs More Data
+💡 For best results, limit labels to 10-20 unless you have massive data.
+
+🚀 Conclusion:
+✔ NER labels can be customized for any industry
+✔ Most real-world models use 10-30 labels
+✔ Too many labels reduce accuracy if data is insufficient
+
+Let me know which labels you need, and I'll help optimize them! 🚀🔥
