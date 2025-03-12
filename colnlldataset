@@ -1,0 +1,121 @@
+1️⃣ Understanding CoNLL-2003 File Format
+CoNLL-2003 dataset is usually in three files:
+
+train.txt → Training data
+valid.txt → Validation data
+test.txt → Testing data
+Each file typically follows this format:
+
+mathematica
+Copy
+Edit
+EU B-ORG
+rejects O
+the O
+call O
+of O
+Germany B-LOC
+...
+Columns: [Token] [NER-Tag]
+
+📌 2️⃣ Fix: Correctly Load Your Local CoNLL-2003 Files
+If your files are inside C:/data/conll2003/, load them manually like this:
+
+python
+Copy
+Edit
+from datasets import load_dataset
+
+# 🔹 Load CoNLL-2003 Dataset from Local Folder
+dataset_conll = load_dataset("text", data_files={
+    "train": "C:/data/conll2003/train.txt",
+    "validation": "C:/data/conll2003/valid.txt",
+    "test": "C:/data/conll2003/test.txt"
+})
+
+# 🔹 Print Dataset Structure
+print(dataset_conll)
+✅ Expected Output (Check If This Works)
+
+css
+Copy
+Edit
+DatasetDict({
+    train: Dataset({
+        features: ['text'],
+        num_rows: 14041
+    })
+    validation: Dataset({
+        features: ['text'],
+        num_rows: 3250
+    })
+    test: Dataset({
+        features: ['text'],
+        num_rows: 3453
+    })
+})
+📌 3️⃣ Fix: Convert CoNLL-2003 Format into DataFrame
+If the above loads correctly, you need to split each line into tokens & tags.
+
+python
+Copy
+Edit
+import pandas as pd
+
+# 🔹 Function to Parse CoNLL Files
+def load_conll_data(file_path):
+    sentences, sentence = [], []
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line == "":  # New sentence
+                if sentence:
+                    sentences.append(sentence)
+                    sentence = []
+            else:
+                parts = line.split()
+                token, tag = parts[0], parts[-1]  # Take first column (token) & last column (NER tag)
+                sentence.append((token, tag))
+
+    return sentences
+
+# 🔹 Load Data
+train_sentences = load_conll_data("C:/data/conll2003/train.txt")
+val_sentences = load_conll_data("C:/data/conll2003/valid.txt")
+test_sentences = load_conll_data("C:/data/conll2003/test.txt")
+
+# 🔹 Convert to DataFrame
+def conll_to_dataframe(sentences, split_name):
+    data = []
+    for idx, sentence in enumerate(sentences):
+        for token, tag in sentence:
+            data.append({"sentence_id": idx, "token": token, "tag": tag})
+    
+    return pd.DataFrame(data)
+
+df_train = conll_to_dataframe(train_sentences, "train")
+df_val = conll_to_dataframe(val_sentences, "validation")
+df_test = conll_to_dataframe(test_sentences, "test")
+
+# 🔹 Save DataFrames as CSVs
+df_train.to_csv("C:/data/train.csv", index=False)
+df_val.to_csv("C:/data/val.csv", index=False)
+df_test.to_csv("C:/data/test.csv", index=False)
+
+print("✅ CoNLL-2003 Data Successfully Loaded & Saved as CSVs!")
+📌 4️⃣ Expected Output (train.csv)
+sentence_id	token	tag
+0	EU	B-ORG
+0	rejects	O
+0	the	O
+1	Germany	B-LOC
+1	calls	O
+✅ Now you can directly use train.csv, val.csv, and test.csv in your NER model!
+
+📌 🚀 Summary: How to Fix This?
+Problem	Fix
+KeyError: No supported file found	✅ Use load_dataset("text", data_files=...)
+Data is not split into tokens	✅ Use load_conll_data() function
+Need CSV files for training	✅ Convert into train.csv, val.csv, test.csv
+💡 Try this and let me know if it works! 🚀🔥
